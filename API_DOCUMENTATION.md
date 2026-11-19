@@ -340,6 +340,67 @@ Errors: `400` invalid id or status, `401` missing/invalid token, `403` not an ad
 
 ---
 
+## UPLOADS
+
+### POST /api/uploads/image
+
+Upload an image to ImgBB and return its public URL. Use this URL as
+`imageUrl` when creating or updating equipment.
+
+- Access: **Owner or Admin**
+- Body: JSON with one field, `image`, containing a **base64 data URL**
+- Max decoded size: **3 MB**
+- Allowed formats: **PNG, JPEG, GIF, WebP** (the file's first bytes are checked, so renamed non-image files are rejected)
+- The `IMGBB_API_KEY` stays on the server and is never returned to the client.
+
+Postman example:
+
+- Method: `POST`
+- URL: `http://localhost:5000/api/uploads/image`
+- Headers:
+  - `Authorization: Bearer <owner-or-admin-token>`
+  - `Content-Type: application/json`
+- Body → raw → JSON:
+
+```json
+{
+  "image": "data:image/png;base64,<base64-of-a-real-image>"
+}
+```
+
+To build that value, encode a normal image file (not a 1×1 placeholder):
+
+```powershell
+$base64 = [Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\photo.png"))
+# Put "data:image/png;base64,$base64" in the request body
+```
+
+> ImgBB rejects tracking-pixel-style images such as 1×1 pixel files with a
+> generic upload error. Use a real photo or a normal-sized image.
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "url": "https://i.ibb.co/xxxxxxx/image.png"
+  }
+}
+```
+
+Errors:
+
+| Status | When |
+|---|---|
+| `400` | Missing image, not a data URL, invalid base64, non-image content, declared type mismatch, or larger than 3 MB |
+| `401` | Missing or invalid token |
+| `403` | Not an owner or admin |
+| `413` | Request body larger than the 5 MB JSON limit |
+| `502` | ImgBB request failed (generic message; no internal details), including images ImgBB flags such as 1×1 tracking pixels |
+
+---
+
 ## BOOKINGS
 
 _No endpoints yet._

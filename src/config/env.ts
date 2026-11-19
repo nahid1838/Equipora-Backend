@@ -22,6 +22,8 @@ export const env = {
   mongoUri: required("MONGODB_URI"),
   betterAuthUrl: required("BETTER_AUTH_URL"),
   stripeSecretKey: required("STRIPE_SECRET_KEY"),
+  // Server-side only: used by POST /api/uploads/image to talk to ImgBB
+  imgbbApiKey: required("IMGBB_API_KEY"),
   // Webhooks are optional for now, so this key may be empty
   stripeWebhookSecret: process.env.STRIPE_WEBHOOK_SECRET?.trim() ?? "",
   clientUrl: required("CLIENT_URL"),
