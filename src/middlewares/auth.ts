@@ -80,3 +80,7 @@ export const verifyOwner = requireRole("owner");
 
 // Admin-only routes
 export const verifyAdmin = requireRole("admin");
+
+// Routes where both owners and admins are allowed (ownership is checked
+// inside the controller: owners only own items, admins any item)
+export const verifyOwnerOrAdmin = requireRole("owner", "admin");

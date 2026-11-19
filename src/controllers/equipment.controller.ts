@@ -6,11 +6,21 @@ import {
   equipmentCollection,
   type Equipment,
 } from "../models/equipment.js";
-import { escapeRegex, isValidObjectId } from "../utils/validation.js";
+import {
+  escapeRegex,
+  isValidObjectId,
+  validateEquipmentInput,
+  validateEquipmentUpdate,
+} from "../utils/validation.js";
 
 // Reads a query parameter as a trimmed string (ignores arrays/objects)
 function queryText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
+}
+
+// Reads the ":id" route parameter (Express 5 types it as string | string[])
+function routeId(req: Request): string {
+  return typeof req.params.id === "string" ? req.params.id : "";
 }
 
 /* =========================
@@ -184,8 +194,7 @@ export async function equipmentCategories(_req: Request, res: Response) {
    GET /api/equipment/:id
    ======================== */
 export async function equipmentDetails(req: Request, res: Response) {
-  // Express 5 can type route params as string | string[]
-  const id = typeof req.params.id === "string" ? req.params.id : "";
+  const id = routeId(req);
 
   if (!id || !isValidObjectId(id)) {
     res.status(400).json({ success: false, message: "Invalid equipment id." });
@@ -211,4 +220,154 @@ export async function equipmentDetails(req: Request, res: Response) {
   }
 
   res.json({ success: true, data: equipment });
+}
+
+/* =========================
+   POST /api/equipment
+   ======================== */
+export async function createEquipment(req: Request, res: Response) {
+  const user = req.user;
+
+  if (!user) {
+    res.status(401).json({ success: false, message: "You must be logged in." });
+    return;
+  }
+
+  const result = validateEquipmentInput(req.body);
+
+  if (!result.valid) {
+    res.status(400).json({ success: false, message: result.message });
+    return;
+  }
+
+  const now = new Date();
+
+  // Owner info and status always come from the server, never the body
+  const equipment: Equipment = {
+    _id: new ObjectId(),
+    ...result.data,
+    status: "pending",
+    ownerId: user.id,
+    ownerName: user.name,
+    ownerEmail: user.email,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await equipmentCollection().insertOne(equipment);
+
+  res.status(201).json({ success: true, data: equipment });
+}
+
+/* =========================
+   GET /api/equipment/owner/mine
+   ======================== */
+export async function myEquipment(req: Request, res: Response) {
+  const user = req.user;
+
+  if (!user) {
+    res.status(401).json({ success: false, message: "You must be logged in." });
+    return;
+  }
+
+  const data = await equipmentCollection()
+    .find({ ownerId: user.id })
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  res.json({ success: true, data });
+}
+
+/* =========================
+   PATCH /api/equipment/:id
+   ======================== */
+export async function updateEquipment(req: Request, res: Response) {
+  const user = req.user;
+
+  if (!user) {
+    res.status(401).json({ success: false, message: "You must be logged in." });
+    return;
+  }
+
+  const id = routeId(req);
+
+  if (!id || !isValidObjectId(id)) {
+    res.status(400).json({ success: false, message: "Invalid equipment id." });
+    return;
+  }
+
+  const collection = equipmentCollection();
+  const existing = await collection.findOne({ _id: new ObjectId(id) });
+
+  if (!existing) {
+    res.status(404).json({ success: false, message: "Equipment not found." });
+    return;
+  }
+
+  // Owners may only edit their own equipment; admins may edit any
+  if (user.role !== "admin" && existing.ownerId !== user.id) {
+    res.status(403).json({
+      success: false,
+      message: "You can only update your own equipment.",
+    });
+    return;
+  }
+
+  const result = validateEquipmentUpdate(req.body, existing);
+
+  if (!result.valid) {
+    res.status(400).json({ success: false, message: result.message });
+    return;
+  }
+
+  // Only editable fields are written; status, owner and createdAt stay as-is
+  const updatedAt = new Date();
+  await collection.updateOne(
+    { _id: existing._id },
+    { $set: { ...result.data, updatedAt } }
+  );
+
+  const updated = await collection.findOne({ _id: existing._id });
+
+  res.json({ success: true, data: updated });
+}
+
+/* =========================
+   DELETE /api/equipment/:id
+   ======================== */
+export async function deleteEquipment(req: Request, res: Response) {
+  const user = req.user;
+
+  if (!user) {
+    res.status(401).json({ success: false, message: "You must be logged in." });
+    return;
+  }
+
+  const id = routeId(req);
+
+  if (!id || !isValidObjectId(id)) {
+    res.status(400).json({ success: false, message: "Invalid equipment id." });
+    return;
+  }
+
+  const collection = equipmentCollection();
+  const existing = await collection.findOne({ _id: new ObjectId(id) });
+
+  if (!existing) {
+    res.status(404).json({ success: false, message: "Equipment not found." });
+    return;
+  }
+
+  // Owners may only delete their own equipment; admins may delete any
+  if (user.role !== "admin" && existing.ownerId !== user.id) {
+    res.status(403).json({
+      success: false,
+      message: "You can only delete your own equipment.",
+    });
+    return;
+  }
+
+  await collection.deleteOne({ _id: existing._id });
+
+  res.json({ success: true, message: "Equipment deleted." });
 }

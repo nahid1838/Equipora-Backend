@@ -5,6 +5,7 @@ import {
   RENTAL_TYPES,
   type EquipmentCategory,
   type EquipmentCondition,
+  type Equipment,
   type EquipmentInput,
   type RentalType,
 } from "../models/equipment.js";
@@ -133,4 +134,76 @@ export function validateEquipmentInput(body: unknown): ValidationResult {
   }
 
   return { valid: true, data };
+}
+
+/* =========================
+   PARTIAL UPDATE VALIDATION (PATCH)
+   ======================== */
+
+// Fields an owner/admin is allowed to change.
+// Status, owner info and timestamps are intentionally NOT in this list,
+// so they can never be changed through PATCH /api/equipment/:id.
+const EDITABLE_FIELDS = [
+  "name",
+  "description",
+  "category",
+  "location",
+  "price",
+  "rentalType",
+  "availableQuantity",
+  "condition",
+  "brand",
+  "model",
+  "imageUrl",
+  "terms",
+] as const;
+
+// Validates a partial equipment update.
+// It merges the provided fields with the existing item and then runs the
+// same rules as create, so every changed field is checked consistently.
+export function validateEquipmentUpdate(
+  body: unknown,
+  existing: Equipment
+): ValidationResult {
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return { valid: false, message: "Request body must be a JSON object." };
+  }
+
+  const input = body as Record<string, unknown>;
+  const updates: Record<string, unknown> = {};
+
+  // Only copy editable fields that were actually sent
+  for (const field of EDITABLE_FIELDS) {
+    if (field in input) {
+      updates[field] = input[field];
+    }
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return {
+      valid: false,
+      message:
+        "No valid fields to update. Editable fields: " +
+        EDITABLE_FIELDS.join(", ") +
+        ".",
+    };
+  }
+
+  const merged = {
+    name: existing.name,
+    description: existing.description,
+    category: existing.category,
+    location: existing.location,
+    price: existing.price,
+    rentalType: existing.rentalType,
+    availableQuantity: existing.availableQuantity,
+    condition: existing.condition,
+    brand: existing.brand,
+    model: existing.model,
+    imageUrl: existing.imageUrl,
+    terms: existing.terms,
+    ...updates,
+  };
+
+  return validateEquipmentInput(merged);
 }

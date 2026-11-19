@@ -182,6 +182,112 @@ Response `200`: `{ "success": true, "data": { ...equipment... } }`
 
 ---
 
+### POST /api/equipment
+
+Create new equipment.
+
+- Access: **Owner** (`Authorization: Bearer <token>`, role `owner`)
+- Body:
+
+```json
+{
+  "name": "Cordless Drill",
+  "description": "18V cordless drill with battery and charger.",
+  "category": "Electronics",
+  "location": "Dhaka",
+  "price": 15,
+  "rentalType": "daily",
+  "availableQuantity": 4,
+  "condition": "excellent",
+  "brand": "Bosch",
+  "model": "GSB 18V",
+  "imageUrl": "https://i.ibb.co/example/drill.jpg",
+  "terms": "Return on time. Damage costs extra."
+}
+```
+
+Required: `name`, `description`, `category`, `location`, `price`, `rentalType`, `availableQuantity`, `condition`, `imageUrl`, `terms`. Optional: `brand`, `model`.
+
+Server-controlled fields (ignored if sent): `status` (always saved as `pending`), `ownerId`, `ownerName`, `ownerEmail`, `createdAt`, `updatedAt`.
+
+Response `201`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "_id": "6741f0c2b1a4e93f88d1c111",
+    "name": "Cordless Drill",
+    "...": "all submitted fields",
+    "status": "pending",
+    "ownerId": "<id from JWT>",
+    "ownerName": "<name from JWT>",
+    "ownerEmail": "<email from JWT>",
+    "createdAt": "2026-11-19T05:20:00.000Z",
+    "updatedAt": "2026-11-19T05:20:00.000Z"
+  }
+}
+```
+
+Errors: `400` invalid body, `401` missing/invalid token, `403` not an owner.
+
+---
+
+### GET /api/equipment/owner/mine
+
+Get all equipment owned by the logged-in owner, including pending and rejected items.
+
+- Access: **Owner**
+- Body: none
+
+Response `200`: `{ "success": true, "data": [ ...newest first... ] }`
+
+Errors: `401` missing/invalid token, `403` not an owner.
+
+---
+
+### PATCH /api/equipment/:id
+
+Partially update equipment. Send only the fields you want to change.
+
+- Access: **Owner or Admin**
+- Params: `id` — MongoDB ObjectId
+- Editable fields: `name`, `description`, `category`, `location`, `price`, `rentalType`, `availableQuantity`, `condition`, `brand`, `model`, `imageUrl`, `terms`
+
+Example (change price and quantity only):
+
+```json
+{ "price": 20, "availableQuantity": 3 }
+```
+
+Rules:
+
+- Owners can update **only their own** equipment; admins can update any.
+- `status`, `ownerId`, `ownerName`, `ownerEmail`, `createdAt` are **never** changed by this route.
+- A body with no editable fields returns `400`.
+- `updatedAt` is set automatically.
+
+Response `200`: `{ "success": true, "data": { ...updated equipment... } }`
+
+Errors: `400` invalid id/body, `401` missing/invalid token, `403` not the owner, `404` not found.
+
+---
+
+### DELETE /api/equipment/:id
+
+Delete equipment.
+
+- Access: **Owner or Admin**
+- Params: `id` — MongoDB ObjectId
+
+Rules: owners can delete **only their own** equipment; admins can delete any.
+
+Response `200`: `{ "success": true, "message": "Equipment deleted." }`
+
+Errors: `400` invalid id, `401` missing/invalid token, `403` not the owner, `404` not found.
+
+---
+
 ## BOOKINGS
 
 _No endpoints yet._
