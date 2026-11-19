@@ -288,6 +288,58 @@ Errors: `400` invalid id, `401` missing/invalid token, `403` not the owner, `404
 
 ---
 
+### GET /api/equipment/admin/all
+
+List equipment of **every** status for the admin dashboard.
+
+- Access: **Admin**
+- Query: `status` (optional) — `pending` \| `approved` \| `rejected`
+
+Examples:
+
+```
+GET /api/equipment/admin/all
+GET /api/equipment/admin/all?status=pending
+```
+
+Response `200`: `{ "success": true, "data": [ ...newest first... ] }`
+
+Errors: `400` invalid status, `401` missing/invalid token, `403` not an admin.
+
+---
+
+### PATCH /api/equipment/:id/status
+
+Approve or reject an equipment item.
+
+- Access: **Admin**
+- Params: `id` — MongoDB ObjectId
+- Body:
+
+```json
+{ "status": "approved" }
+```
+
+Allowed values: `approved` or `rejected` only (`pending` is set only when the item is created).
+
+Example response `200`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "_id": "6741f0c2b1a4e93f88d1c111",
+    "name": "Cordless Drill",
+    "status": "approved",
+    "updatedAt": "2026-11-19T05:40:00.000Z"
+  }
+}
+```
+
+Errors: `400` invalid id or status, `401` missing/invalid token, `403` not an admin, `404` not found.
+
+---
+
 ## BOOKINGS
 
 _No endpoints yet._
@@ -308,4 +360,5 @@ _No endpoints yet._
 
 ## ADMIN
 
-_No endpoints yet._
+_No endpoints yet. Equipment moderation endpoints are documented under EQUIPMENT
+(`GET /api/equipment/admin/all` and `PATCH /api/equipment/:id/status`)._

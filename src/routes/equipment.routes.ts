@@ -1,10 +1,12 @@
 import { Router } from "express";
 import {
+  verifyAdmin,
   verifyOwner,
   verifyOwnerOrAdmin,
   verifyToken,
 } from "../middlewares/auth.js";
 import {
+  allEquipmentAdmin,
   createEquipment,
   deleteEquipment,
   equipmentCategories,
@@ -13,6 +15,7 @@ import {
   listEquipment,
   myEquipment,
   updateEquipment,
+  updateEquipmentStatus,
 } from "../controllers/equipment.controller.js";
 
 const router = Router();
@@ -71,6 +74,29 @@ router.patch("/:id", verifyToken, verifyOwnerOrAdmin, updateEquipment);
 // Access: Owner or Admin
 // Params: id (MongoDB ObjectId)
 router.delete("/:id", verifyToken, verifyOwnerOrAdmin, deleteEquipment);
+
+/* =========================
+   EQUIPMENT — ADMIN
+   (specific routes must come before "/:id")
+   ======================== */
+
+// GET /api/equipment/admin/all
+// Description: List all equipment of every status (for the admin dashboard)
+// Access: Admin
+// Query: status? (pending | approved | rejected)
+router.get("/admin/all", verifyToken, verifyAdmin, allEquipmentAdmin);
+
+// PATCH /api/equipment/:id/status
+// Description: Approve or reject an equipment item
+// Access: Admin
+// Params: id (MongoDB ObjectId)
+// Body: { "status": "approved" | "rejected" }
+router.patch(
+  "/:id/status",
+  verifyToken,
+  verifyAdmin,
+  updateEquipmentStatus
+);
 
 /* =========================
    EQUIPMENT — AUTHENTICATED

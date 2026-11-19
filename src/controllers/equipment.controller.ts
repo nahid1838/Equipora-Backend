@@ -2,9 +2,11 @@ import type { Request, Response } from "express";
 import { ObjectId, type Filter } from "mongodb";
 import {
   EQUIPMENT_CATEGORIES,
+  EQUIPMENT_STATUSES,
   RENTAL_TYPES,
   equipmentCollection,
   type Equipment,
+  type EquipmentStatus,
 } from "../models/equipment.js";
 import {
   escapeRegex,
@@ -370,4 +372,72 @@ export async function deleteEquipment(req: Request, res: Response) {
   await collection.deleteOne({ _id: existing._id });
 
   res.json({ success: true, message: "Equipment deleted." });
+}
+
+/* =========================
+   GET /api/equipment/admin/all
+   ======================== */
+export async function allEquipmentAdmin(req: Request, res: Response) {
+  const status = queryText(req.query.status);
+
+  if (status && !EQUIPMENT_STATUSES.includes(status as EquipmentStatus)) {
+    res.status(400).json({
+      success: false,
+      message: `status must be one of: ${EQUIPMENT_STATUSES.join(", ")}.`,
+    });
+    return;
+  }
+
+  // No status filter returns every item, whatever its status
+  const filter: Filter<Equipment> = status
+    ? { status: status as EquipmentStatus }
+    : {};
+
+  const data = await equipmentCollection()
+    .find(filter)
+    .sort({ createdAt: -1 })
+    .toArray();
+
+  res.json({ success: true, data });
+}
+
+/* =========================
+   PATCH /api/equipment/:id/status
+   ======================== */
+export async function updateEquipmentStatus(req: Request, res: Response) {
+  const id = routeId(req);
+
+  if (!id || !isValidObjectId(id)) {
+    res.status(400).json({ success: false, message: "Invalid equipment id." });
+    return;
+  }
+
+  const body = req.body as Record<string, unknown> | undefined;
+  const status = typeof body?.status === "string" ? body.status.trim() : "";
+
+  // An admin can only approve or reject; "pending" is only set on create
+  if (status !== "approved" && status !== "rejected") {
+    res.status(400).json({
+      success: false,
+      message: "status must be either approved or rejected.",
+    });
+    return;
+  }
+
+  const collection = equipmentCollection();
+  const existing = await collection.findOne({ _id: new ObjectId(id) });
+
+  if (!existing) {
+    res.status(404).json({ success: false, message: "Equipment not found." });
+    return;
+  }
+
+  await collection.updateOne(
+    { _id: existing._id },
+    { $set: { status, updatedAt: new Date() } }
+  );
+
+  const updated = await collection.findOne({ _id: existing._id });
+
+  res.json({ success: true, data: updated });
 }
