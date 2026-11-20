@@ -4,7 +4,9 @@ import { env } from "./config/env.js";
 import { connectDB } from "./config/db.js";
 import { errorHandler, notFoundHandler } from "./middlewares/errorHandler.js";
 import { createEquipmentIndexes } from "./models/equipment.js";
+import { createFavoriteIndexes } from "./models/favorite.js";
 import equipmentRoutes from "./routes/equipment.routes.js";
+import favoriteRoutes from "./routes/favorite.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
 
 const app = express();
@@ -44,6 +46,7 @@ app.get("/api/health", (_req, res) => {
 
 // Every route in this router is documented in API_DOCUMENTATION.md
 app.use("/api/equipment", equipmentRoutes);
+app.use("/api/favorites", favoriteRoutes);
 
 /* =========================
    UPLOADS
@@ -63,8 +66,8 @@ async function startServer() {
   try {
     await connectDB();
 
-    // Creates the equipment indexes once; safe to call on every start
-    await createEquipmentIndexes();
+    // Ensure the indexes exist before serving requests.
+    await Promise.all([createEquipmentIndexes(), createFavoriteIndexes()]);
 
     app.listen(env.port, () => {
       console.log(`Equipora API running at http://localhost:${env.port}`);
