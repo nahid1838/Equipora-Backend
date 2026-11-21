@@ -4,7 +4,7 @@ Express, TypeScript and MongoDB API for Equipora, an equipment rental marketplac
 
 ## Local setup
 
-Use Node.js 24. Run `npm ci`, copy `.env.example` to `.env`, fill in the values, and run `npm run dev`. The API defaults to port 5000. `npm run typecheck` checks TypeScript, and `npm run build` followed by `npm start` runs the compiled standalone server. The booking logic tests run with `node --import tsx --test --test-isolation=none test/booking.test.ts`.
+Use Node.js 24. Run `npm ci`, copy `.env.example` to `.env`, fill in the values, and run `npm run dev`. The API defaults to port 5000. Run `npm test` for the booking tests and `npm run typecheck` for TypeScript. Run `npm run build` followed by `npm start` to start the compiled standalone server.
 
 | Variable | Required | Sensitive | Local and production use |
 | --- | --- | --- | --- |
@@ -23,6 +23,10 @@ Use Node.js 24. Run `npm ci`, copy `.env.example` to `.env`, fill in the values,
 3. Open `https://<backend-host>/api/health`. A 200 response confirms that API initialization finished. If it fails, check MongoDB access and index permissions in Vercel logs. Copy this backend origin for the frontend project.
 4. Import the **frontend repository** separately. Select its repository root, use Next.js and Node.js 24.x, and follow the frontend README to configure Better Auth and Google OAuth. After it deploys, use its actual canonical origin for both backend URL variables. Redeploy any project after changing its environment.
 5. Verify the public catalog from the browser, then sign in and test a protected dashboard call. The backend fetches public signing keys from `https://<frontend-host>/api/auth/jwks`. Production deployment protection must permit browser access to the API, Stripe webhook delivery, and the backend's access to that JWKS endpoint. The API uses bearer JWTs; no shared JWT secret is needed.
+
+### Build dependency installation
+
+The backend's root `.npmrc` tells npm to include development and optional dependencies during installation. The build needs TypeScript, its platform binary, and the Node, Express, and CORS type definitions. Keep the Vercel root directory at the backend repository root so npm reads this file. If the project uses a custom npm install command, use `npm ci --include=dev --include=optional`.
 
 ### First-deployment MongoDB indexes
 
