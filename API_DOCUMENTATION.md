@@ -1,7 +1,11 @@
 # Equipora API Documentation
 
-Base URL (local): `http://localhost:5000`
-All endpoints are prefixed with `/api`.
+- Express API base URL (local): `http://localhost:5000`
+- Better Auth base URL (local, runs in the Next.js app): `http://localhost:3000`
+
+All Express endpoints are prefixed with `/api`. Authentication endpoints are
+served by Better Auth inside the Next.js app and are documented in the
+[AUTH](#auth) section.
 
 ## Authentication
 
@@ -22,19 +26,36 @@ Role values: `customer`, `owner`, `admin`.
 
 ## Response format
 
-Success:
+Success responses always include `success: true` and either `data`, `message`,
+or both (for example the health check has no `data`, and the list endpoint adds
+`pagination`):
 
 ```json
-{ "success": true, "message": "...", "data": {} }
+{ "success": true, "data": {} }
 ```
 
-Error:
+```json
+{ "success": true, "message": "..." }
+```
+
+Errors always look like this:
 
 ```json
 { "success": false, "message": "..." }
 ```
 
-Common error codes: `401` (missing/invalid token), `403` (wrong role), `404` (route not found), `500` (server error).
+Common status codes:
+
+| Status | Meaning |
+|---|---|
+| `400` | Invalid body, query parameter, or id |
+| `401` | Missing or invalid token |
+| `403` | Logged in, but the wrong role / not the owner |
+| `404` | Item not found, not visible to you, or unknown route |
+| `413` | JSON body larger than the 5 MB limit |
+| `500` | Unexpected server error (details are only logged on the server) |
+| `502` | Third-party service (ImgBB or Stripe) failed |
+| `503` | A required service is not configured (for example the Stripe webhook secret) |
 
 ---
 
@@ -47,11 +68,96 @@ Check that the API server is running.
 - Access: Public
 - Body: none
 
+Response `200`:
+
+```json
+{ "success": true, "message": "Equipora API is running" }
+```
+
 ---
 
 ## AUTH
 
-_No endpoints yet — authentication is handled by Better Auth on the client (`/api/auth/*`)._
+Authentication is **not** implemented in this Express server. It is handled by
+**Better Auth** inside the Next.js app at `http://localhost:3000`, and this
+Express API only verifies the JWT those endpoints produce.
+
+Better Auth stores users in the same MongoDB database (`equiporadb`) and uses
+the same JWT issuer/audience as `BETTER_AUTH_URL`.
+
+### Better Auth endpoints used by the client
+
+| Method | URL | Purpose |
+|---|---|---|
+| `POST` | `http://localhost:3000/api/auth/sign-up/email` | Create an account (default role `customer`) |
+| `POST` | `http://localhost:3000/api/auth/sign-in/email` | Sign in and start a session |
+| `GET` | `http://localhost:3000/api/auth/get-session` | Read the current session |
+| `GET` | `http://localhost:3000/api/auth/token` | Get the JWT used by this Express API |
+| `POST` | `http://localhost:3000/api/auth/sign-out` | End the session |
+
+> `POST /api/auth/sign-out` expects `Content-Type: application/json` and an
+> empty JSON body (`{}`); without the header Better Auth returns `415`.
+
+### Postman: sign up
+
+- Method: `POST`
+- URL: `http://localhost:3000/api/auth/sign-up/email`
+- Headers:
+  - `Content-Type: application/json`
+  - `Origin: http://localhost:3000` (required when calling from Postman/curl)
+- Body → raw → JSON:
+
+```json
+{
+  "name": "Test Customer",
+  "email": "customer@example.com",
+  "password": "Test1234"
+}
+```
+
+The response contains the new `user` object and sets a session cookie.
+
+### Postman: sign in
+
+- Method: `POST`
+- URL: `http://localhost:3000/api/auth/sign-in/email`
+- Headers: same as sign up
+- Body → raw → JSON:
+
+```json
+{
+  "email": "customer@example.com",
+  "password": "Test1234"
+}
+```
+
+Postman keeps the returned session cookie automatically. With `curl`, copy the
+`Set-Cookie` value and send it as `Cookie: <value>` on the next request.
+
+### Postman: get the JWT
+
+- Method: `GET`
+- URL: `http://localhost:3000/api/auth/token`
+- Headers: the session cookie from sign in (Postman sends it automatically)
+
+Response `200`:
+
+```json
+{ "token": "<jwt>" }
+```
+
+Send that token to every protected Express endpoint:
+
+```
+Authorization: Bearer <jwt>
+```
+
+### Roles
+
+- New accounts always start as `customer`.
+- `owner` and `admin` roles are assigned by an administrator directly in the
+  `user` collection (`role` field). There is no public endpoint to change roles.
+- A user cannot set their own role during sign up.
 
 ---
 
@@ -208,6 +314,23 @@ Create new equipment.
 
 Required: `name`, `description`, `category`, `location`, `price`, `rentalType`, `availableQuantity`, `condition`, `imageUrl`, `terms`. Optional: `brand`, `model`.
 
+Allowed values:
+
+| Field | Values |
+|---|---|
+| `category` | `Construction`, `Photography`, `Vehicles & Transportation`, `Agriculture`, `Electronics`, `Event` |
+| `rentalType` | `daily`, `weekly`, `monthly` |
+| `condition` | `excellent`, `good`, `fair` |
+
+Rules:
+
+- `price` must be a number greater than `0`.
+- `availableQuantity` must be a whole number of `0` or more.
+- `imageUrl` must start with `http` (upload the file first with
+  `POST /api/uploads/image`).
+- Numeric strings such as `"15"` are accepted for `price` and
+  `availableQuantity` and saved as numbers.
+
 Server-controlled fields (ignored if sent): `status` (always saved as `pending`), `ownerId`, `ownerName`, `ownerEmail`, `createdAt`, `updatedAt`.
 
 Response `201`:
@@ -262,14 +385,17 @@ Example (change price and quantity only):
 
 Rules:
 
+- The body must be a JSON object containing at least one editable field.
 - Owners can update **only their own** equipment; admins can update any.
 - `status`, `ownerId`, `ownerName`, `ownerEmail`, `createdAt` are **never** changed by this route.
 - A body with no editable fields returns `400`.
 - `updatedAt` is set automatically.
+- Changed fields are validated with the same rules as create (for example, an
+  empty `name` or a `price` of `0` returns `400`).
 
 Response `200`: `{ "success": true, "data": { ...updated equipment... } }`
 
-Errors: `400` invalid id/body, `401` missing/invalid token, `403` not the owner, `404` not found.
+Errors: `400` invalid id/body, `401` missing/invalid token, `403` not an owner/admin or not the item's owner, `404` not found.
 
 ---
 
@@ -284,7 +410,7 @@ Rules: owners can delete **only their own** equipment; admins can delete any.
 
 Response `200`: `{ "success": true, "message": "Equipment deleted." }`
 
-Errors: `400` invalid id, `401` missing/invalid token, `403` not the owner, `404` not found.
+Errors: `400` invalid id, `401` missing/invalid token, `403` not an owner/admin or not the item's owner, `404` not found.
 
 ---
 
@@ -322,7 +448,8 @@ Approve or reject an equipment item.
 
 Allowed values: `approved` or `rejected` only (`pending` is set only when the item is created).
 
-Example response `200`:
+Example response `200` (abbreviated — the real response is the full updated
+equipment item, the same shape as `PATCH /api/equipment/:id`):
 
 ```json
 {
@@ -349,7 +476,7 @@ Upload an image to ImgBB and return its public URL. Use this URL as
 
 - Access: **Owner or Admin**
 - Body: JSON with one field, `image`, containing a **base64 data URL**
-- Max decoded size: **3 MB**
+- Max decoded size: **3 MB** (the JSON body limit is 5 MB because base64 is larger than the original file)
 - Allowed formats: **PNG, JPEG, GIF, WebP** (the file's first bytes are checked, so renamed non-image files are rejected)
 - The `IMGBB_API_KEY` stays on the server and is never returned to the client.
 
@@ -403,13 +530,373 @@ Errors:
 
 ## BOOKINGS
 
-_No endpoints yet._
+Booking prices are calculated on the server from the equipment's stored price and
+the requested date range. Nothing is booked until Stripe reports the payment as
+paid, so `POST /api/bookings/checkout` only creates a checkout draft.
+
+Checkout lifecycle (`GET /api/bookings/checkout/:id` returns one of these):
+
+| Status | Meaning |
+|---|---|
+| `open` | No payment confirmed yet |
+| `processing` | Payment saved, booking document still being written |
+| `confirmed` | Payment saved and booking created |
+| `expired` | Stripe Checkout expired without payment |
+| `failed` | Stripe reported a failed asynchronous payment |
+| `refund_required` | Paid, but the rental was no longer available; refund needed |
+| `refund_pending` | Stripe is processing the refund |
+| `refunded` | Stripe refunded the payment |
+
+### POST /api/bookings/quote
+
+Price a rental without creating anything.
+
+- Access: Customer
+- Body:
+
+```json
+{
+  "equipmentId": "65f0c0a1b2c3d4e5f6071829",
+  "startDate": "2026-12-01",
+  "endDate": "2026-12-04",
+  "quantity": 1
+}
+```
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "unitPriceMinor": 5000,
+    "billableUnits": 3,
+    "totalAmountMinor": 15000,
+    "currency": "usd",
+    "durationDays": 3
+  }
+}
+```
+
+Errors: `400` invalid dates, quantity, or equipment id; `404` equipment not
+found or not approved; `401`/`403` wrong role.
+
+---
+
+### POST /api/bookings/checkout
+
+Create a Stripe Checkout Session for a rental. Reusing the same `requestKey` with
+the same rental details returns the same draft, which makes double-submits safe.
+
+- Access: Customer
+- Body:
+
+```json
+{
+  "equipmentId": "65f0c0a1b2c3d4e5f6071829",
+  "startDate": "2026-12-01",
+  "endDate": "2026-12-04",
+  "quantity": 1,
+  "contactNumber": "+8801700000000",
+  "deliveryAddress": "House 12, Road 5, Dhaka",
+  "notes": "Deliver before 9 AM",
+  "requestKey": "3f6c1f1a-6f3f-4d64-9f38-8c9f2f6b8a11"
+}
+```
+
+Response `200`:
+
+```json
+{ "success": true, "data": { "url": "https://checkout.stripe.com/c/pay/..." } }
+```
+
+Send the browser to `data.url`. Stripe returns the customer to
+`/booking/payment/:checkoutId?session_id={CHECKOUT_SESSION_ID}` after payment.
+
+Errors:
+
+| Status | When |
+|---|---|
+| `400` | Invalid dates, quantity, contact number, address, notes, or `requestKey` |
+| `401` / `403` | Missing token or not a customer |
+| `404` | Equipment not found or not approved |
+| `409` | Dates no longer available, checkout key reused with different details, or checkout ended |
+| `502` | Stripe could not be reached |
+
+---
+
+### GET /api/bookings/checkout/:id
+
+Read the current status of a checkout owned by the signed-in customer.
+
+- Access: Customer (must own the checkout)
+- Params: `id` — checkout ObjectId
+- Body: none
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "data": { "status": "open", "equipmentId": "65f0c0a1b2c3d4e5f6071829" }
+}
+```
+
+Errors: `400` invalid id; `401`/`403` wrong role; `404` checkout not found or not
+owned by this customer.
+
+---
+
+### POST /api/bookings/checkout/:id/confirm
+
+The payment page calls this after the Stripe redirect. The server retrieves the
+Checkout Session from Stripe and, when it is paid, saves the payment and booking
+using the same logic as the webhook. It is idempotent, so the client may call it
+repeatedly while it polls.
+
+- Access: Customer (must own the checkout)
+- Params: `id` — checkout ObjectId
+- Body: none
+
+Response `200` — nothing is saved if Stripe still reports the session as unpaid:
+
+```json
+{
+  "success": true,
+  "data": { "status": "confirmed", "equipmentId": "65f0c0a1b2c3d4e5f6071829" }
+}
+```
+
+The response `data.status` uses the same values as the table above. This endpoint
+works without local webhook forwarding, but the webhook should stay configured in
+production so refunds and expired sessions are recorded too.
+
+Errors:
+
+| Status | When |
+|---|---|
+| `400` | `id` is not a valid ObjectId |
+| `401` / `403` | Missing token or not a customer |
+| `404` | Checkout not found or not owned by this customer |
+| `409` | No Stripe session yet, or the session does not match this checkout |
+| `502` | Stripe could not be reached |
+| `503` | Stripe returned incomplete payment data |
+
+---
+
+### GET /api/bookings/my
+
+List the signed-in customer's bookings, newest first.
+
+- Access: Customer
+- Query: `page` (optional, default `1`; 10 per page)
+- Body: none
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "_id": "65f0c0a1b2c3d4e5f6071829",
+      "equipmentId": "65f0c0a1b2c3d4e5f6071800",
+      "equipmentName": "Cordless Drill",
+      "customerName": "Test Customer",
+      "ownerName": "Test Owner",
+      "startDate": "2026-12-01T00:00:00.000Z",
+      "endDate": "2026-12-04T00:00:00.000Z",
+      "durationDays": 3,
+      "quantity": 1,
+      "rentalType": "daily",
+      "unitPriceMinor": 5000,
+      "billableUnits": 3,
+      "totalAmountMinor": 15000,
+      "currency": "usd",
+      "paymentStatus": "paid",
+      "bookingStatus": "confirmed",
+      "createdAt": "2026-12-01T08:30:00.000Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 10, "total": 1, "totalPages": 1 }
+}
+```
+
+Errors: `400` invalid page; `401`/`403` wrong role.
+
+---
+
+### GET /api/bookings/owner
+
+List bookings for the signed-in owner's equipment. Same shape and pagination as
+`GET /api/bookings/my`.
+
+- Access: Owner
+- Query: `page`
+
+---
+
+### GET /api/bookings
+
+List every booking in the marketplace. Same shape and pagination as
+`GET /api/bookings/my`.
+
+- Access: Admin
+- Query: `page`
 
 ---
 
 ## PAYMENTS
 
-_No endpoints yet._
+Payments are handled with **Stripe Checkout** in `payment` mode. The server saves
+a `payments` document when a paid Checkout Session is fulfilled, and a `bookings`
+document if the rental was still available. If the rental is no longer available,
+the payment is recorded as `refund_required` and a refund is submitted through
+Stripe.
+
+### POST /api/payments/webhook
+
+Stripe calls this endpoint. Do not call it manually: the request body must be the
+raw JSON Stripe sent, and `Stripe-Signature` must match
+`STRIPE_WEBHOOK_SECRET`.
+
+- Access: Public (verified by Stripe signature)
+- Headers: `Stripe-Signature: t=...,v1=...`, `Content-Type: application/json`
+- Body: raw Stripe event
+
+Handled events:
+
+| Event | Result |
+|---|---|
+| `checkout.session.completed` | Saves the payment and booking |
+| `checkout.session.async_payment_succeeded` | Saves the payment and booking |
+| `checkout.session.async_payment_failed` | Marks the checkout `failed` |
+| `checkout.session.expired` | Marks the checkout `expired` |
+| `refund.updated` | Updates the payment to `refunded` / `refund_pending` |
+| `refund.failed` | Keeps the payment in `refund_required` |
+
+Response `200`: `{ "success": true, "message": "Webhook received." }`
+
+Errors: `400` missing/invalid signature or raw body; `503` webhook secret not set.
+
+### Local webhook setup
+
+Stripe cannot reach `localhost` directly, so forward events with the Stripe CLI:
+
+```bash
+stripe login
+stripe listen --forward-to localhost:5000/api/payments/webhook
+```
+
+Copy the `whsec_...` value printed by `stripe listen` into
+`equipora-server/.env` as `STRIPE_WEBHOOK_SECRET`, then restart the API. The CLI
+secret changes every time `stripe listen` starts, so repeat this whenever the CLI
+prints a new one.
+
+The payment page also calls
+`POST /api/bookings/checkout/:id/confirm`, which verifies the session directly
+with Stripe. That means bookings still complete locally if the webhook was missed,
+but running the CLI is recommended so refunds and expirations are recorded.
+
+For production, add an endpoint in the Stripe Dashboard pointing to
+`https://your-api-domain/api/payments/webhook` with the same six events and put
+that endpoint's signing secret in the deployed environment.
+
+---
+
+## ANALYTICS
+
+Dashboard totals calculated from the database. Amounts are integer USD cents
+(`currency: "usd"`). Revenue is the sum of `totalAmountMinor` over paid bookings,
+so a payment is never counted twice. A rental is **completed** when its `endDate`
+is before the current time.
+
+The monthly series always contains six points — oldest first, current month last
+— using UTC month boundaries. Months with no bookings are included with zeroes.
+
+### GET /api/analytics/admin
+
+Marketplace-wide totals for the admin dashboard.
+
+- Access: Admin
+- Body: none
+
+| Field | Meaning |
+|---|---|
+| `totalUsers` | All Better Auth accounts |
+| `totalEquipment` | All equipment, regardless of status |
+| `totalBookings` | All paid bookings |
+| `pendingApprovals` | Equipment waiting for moderation (`status: "pending"`) |
+| `completedRentals` | Bookings whose `endDate` is before now |
+| `totalRevenueMinor` | Sum of all booking totals |
+| `monthly` | Six months of `{ month, label, bookings, revenueMinor }` |
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalUsers": 3,
+    "totalEquipment": 12,
+    "totalBookings": 7,
+    "pendingApprovals": 2,
+    "completedRentals": 4,
+    "totalRevenueMinor": 315000,
+    "currency": "usd",
+    "monthly": [
+      { "month": "2026-06", "label": "Jun 2026", "bookings": 0, "revenueMinor": 0 },
+      { "month": "2026-07", "label": "Jul 2026", "bookings": 1, "revenueMinor": 15000 },
+      { "month": "2026-08", "label": "Aug 2026", "bookings": 0, "revenueMinor": 0 },
+      { "month": "2026-09", "label": "Sep 2026", "bookings": 2, "revenueMinor": 60000 },
+      { "month": "2026-10", "label": "Oct 2026", "bookings": 1, "revenueMinor": 40000 },
+      { "month": "2026-11", "label": "Nov 2026", "bookings": 3, "revenueMinor": 200000 }
+    ]
+  }
+}
+```
+
+Errors: `401` missing/invalid token; `403` not an admin.
+
+---
+
+### GET /api/analytics/owner
+
+Totals for the signed-in owner's own equipment and bookings.
+
+- Access: Owner
+- Body: none
+
+| Field | Meaning |
+|---|---|
+| `totalEquipment` | Equipment owned by the requester, any status |
+| `completedRentals` | The owner's bookings whose `endDate` is before now |
+| `totalEarningsMinor` | Sum of the owner's booking totals |
+| `monthly` | Six months of `{ month, label, bookings, earningsMinor }` |
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "totalEquipment": 4,
+    "completedRentals": 2,
+    "totalEarningsMinor": 55000,
+    "currency": "usd",
+    "monthly": [
+      { "month": "2026-06", "label": "Jun 2026", "bookings": 0, "earningsMinor": 0 },
+      { "month": "2026-07", "label": "Jul 2026", "bookings": 0, "earningsMinor": 0 },
+      { "month": "2026-08", "label": "Aug 2026", "bookings": 1, "earningsMinor": 15000 },
+      { "month": "2026-09", "label": "Sep 2026", "bookings": 1, "earningsMinor": 10000 },
+      { "month": "2026-10", "label": "Oct 2026", "bookings": 0, "earningsMinor": 0 },
+      { "month": "2026-11", "label": "Nov 2026", "bookings": 2, "earningsMinor": 30000 }
+    ]
+  }
+}
+```
+
+Errors: `401` missing/invalid token; `403` not an owner.
 
 ---
 
@@ -421,5 +908,112 @@ _No endpoints yet._
 
 ## ADMIN
 
-_No endpoints yet. Equipment moderation endpoints are documented under EQUIPMENT
-(`GET /api/equipment/admin/all` and `PATCH /api/equipment/:id/status`)._
+Admin routes require a token whose role is `admin`. The endpoints below manage
+accounts stored by Better Auth in the `user` collection. Password hashes and
+OAuth accounts live in the separate `account` collection, so they are never
+returned here.
+
+Equipment moderation is documented under EQUIPMENT
+(`GET /api/equipment/admin/all` and `PATCH /api/equipment/:id/status`).
+
+### GET /api/admin/users
+
+List every account with optional search, role filter, and pagination.
+
+- Access: Admin
+- Query:
+  - `page` — optional, default `1`
+  - `limit` — optional, default `10`, maximum `50`
+  - `search` — optional, case-insensitive match on name or email
+  - `role` — optional, one of `customer`, `owner`, `admin`
+- Body: none
+
+Example:
+
+```
+GET /api/admin/users?search=rahim&role=customer&page=1&limit=10
+```
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "_id": "691f0c1a2b3c4d5e6f708192",
+      "name": "Test Customer",
+      "email": "customer@example.com",
+      "role": "customer",
+      "image": "",
+      "emailVerified": false,
+      "createdAt": "2026-11-10T08:15:00.000Z",
+      "updatedAt": "2026-11-10T08:15:00.000Z"
+    }
+  ],
+  "pagination": { "page": 1, "limit": 10, "total": 1, "totalPages": 1 }
+}
+```
+
+Errors:
+
+| Status | When |
+|---|---|
+| `400` | Invalid `page`, `limit`, or `role` |
+| `401` | Missing or invalid token |
+| `403` | Signed in, but not an admin |
+
+---
+
+### PATCH /api/admin/users/:id/role
+
+Change one account's role.
+
+- Access: Admin
+- Params: `id` — the user's MongoDB ObjectId (the same value returned as `_id`)
+- Body:
+
+```json
+{ "role": "owner" }
+```
+
+`role` must be exactly one of `customer`, `owner`, or `admin`.
+
+Response `200`:
+
+```json
+{
+  "success": true,
+  "data": {
+    "_id": "691f0c1a2b3c4d5e6f708192",
+    "name": "Test Customer",
+    "email": "customer@example.com",
+    "role": "owner",
+    "image": "",
+    "emailVerified": false,
+    "createdAt": "2026-11-10T08:15:00.000Z",
+    "updatedAt": "2026-11-21T09:40:00.000Z"
+  }
+}
+```
+
+Sending the role an account already has is a successful no-op and returns the
+same document.
+
+Safety rules:
+
+- An admin cannot change their own role (prevents locking themselves out).
+- The last remaining admin cannot be demoted.
+- Only `role` is writable through this route; name, email, and auth data cannot
+  be changed here.
+
+Errors:
+
+| Status | When |
+|---|---|
+| `400` | Invalid user id, body, or role value |
+| `401` | Missing or invalid token |
+| `403` | Signed in, but not an admin |
+| `404` | User not found |
+| `409` | Changing your own role, or demoting the last admin |
+
