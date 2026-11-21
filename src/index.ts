@@ -14,6 +14,8 @@ import analyticsRoutes from "./routes/analytics.routes.js";
 import ownerApplicationRoutes from "./routes/owner-application.routes.js";
 import { createOwnerApplicationIndexes } from "./models/owner-application.js";
 import { createBookingIndexes } from "./models/booking.js";
+import { createReviewIndexes } from "./models/review.js";
+import reviewRoutes from "./routes/review.routes.js";
 import { stripeWebhook } from "./controllers/stripe-webhook.controller.js";
 
 const app = express();
@@ -36,6 +38,7 @@ function initializeDatabase(): Promise<void> {
       createFavoriteIndexes(),
       createBookingIndexes(),
       createOwnerApplicationIndexes(),
+      createReviewIndexes(),
     ]);
   })().catch((error: unknown) => {
     databaseReady = undefined;
@@ -82,6 +85,7 @@ app.use("/api/equipment", equipmentRoutes);
 app.use("/api/favorites", favoriteRoutes);
 app.use("/api/bookings", bookingRoutes);
 app.use("/api/owner-applications", ownerApplicationRoutes);
+app.use("/api/reviews", reviewRoutes);
 
 /* =========================
    ADMIN

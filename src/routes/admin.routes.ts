@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { listUsers, updateUserRole } from "../controllers/user.controller.js";
 import { listApplications, reviewApplication } from "../controllers/owner-application.controller.js";
+import { listPendingReviews, moderateReview } from "../controllers/review.controller.js";
 import { verifyAdmin, verifyToken } from "../middlewares/auth.js";
 
 const router = Router();
@@ -19,5 +20,7 @@ router.get("/users", listUsers);
 router.patch("/users/:id/role", updateUserRole);
 router.get("/owner-applications", listApplications);
 router.patch("/owner-applications/:id", reviewApplication);
+router.get("/reviews", listPendingReviews);
+router.patch("/reviews/:id", moderateReview);
 
 export default router;

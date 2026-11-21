@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { MongoServerError, ObjectId, type Filter } from "mongodb";
 import { env } from "../config/env.js";
 import { bookingCollection, checkoutCollection, paymentCollection, type Booking, type CheckoutDraft } from "../models/booking.js";
+import { reviewDetailsForBookings } from "../utils/review-eligibility.js";
 import { equipmentCollection } from "../models/equipment.js";
 import { bookingError, calculateRental, readRentalPeriod } from "../utils/booking.js";
 import { remainingQuantity } from "../utils/availability.js";
@@ -221,5 +222,10 @@ export async function listBookings(req: Request, res: Response) {
     collection.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).toArray(),
     collection.countDocuments(filter),
   ]);
-  res.json({ success: true, data: data.map(({ customerId: _customerId, ownerId: _ownerId, ...booking }) => booking), pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } });
+  const reviewDetails = user.role === "customer" ? await reviewDetailsForBookings(data) : [];
+  res.json({
+    success: true,
+    data: data.map(({ customerId: _customerId, ownerId: _ownerId, ...booking }, index) => ({ ...booking, ...reviewDetails[index] })),
+    pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
+  });
 }
