@@ -8,6 +8,8 @@
        ("type": "module" in package.json must stay in sync with this) */
     "module": "nodenext",
     "target": "esnext",
+    // Vercel's TypeScript runner extends this config from a temporary directory.
+    "typeRoots": ["./node_modules/@types"],
     "types": ["node"],
     "esModuleInterop": true,
 
