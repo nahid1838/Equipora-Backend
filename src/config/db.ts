@@ -6,28 +6,21 @@ import { env, DB_NAME } from "./env.js";
 const client = new MongoClient(env.mongoUri);
 
 let db: Db | null = null;
+let connection: Promise<Db> | undefined;
 
 // Connects to MongoDB once and returns the database handle.
-// Called from the server entry file at startup.
-export async function connectDB(): Promise<Db> {
-  // If we are already connected, reuse the same connection
-  if (db) {
-    return db;
-  }
-
-  try {
-    await client.connect();
-    db = client.db(DB_NAME);
-
-    // "ping" proves the connection really works
-    await db.command({ ping: 1 });
-    console.log(`MongoDB connected (database: ${DB_NAME})`);
-
-    return db;
-  } catch (error) {
-    console.error("MongoDB connection failed. Check MONGODB_URI in .env");
+// Concurrent requests on a cold instance share the same connection attempt.
+export function connectDB(): Promise<Db> {
+  connection ??= client.connect().then(async () => {
+    const database = client.db(DB_NAME);
+    await database.command({ ping: 1 });
+    db = database;
+    return database;
+  }).catch((error: unknown) => {
+    connection = undefined;
     throw error;
-  }
+  });
+  return connection;
 }
 
 // Returns the database handle for models/controllers.
@@ -43,4 +36,5 @@ export function getDB(): Db {
 export async function closeDB(): Promise<void> {
   await client.close();
   db = null;
+  connection = undefined;
 }

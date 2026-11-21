@@ -26,6 +26,29 @@ app.use(
   })
 );
 
+let databaseReady: Promise<void> | undefined;
+
+function initializeDatabase(): Promise<void> {
+  databaseReady ??= (async () => {
+    await connectDB();
+    await Promise.all([
+      createEquipmentIndexes(),
+      createFavoriteIndexes(),
+      createBookingIndexes(),
+      createOwnerApplicationIndexes(),
+    ]);
+  })().catch((error: unknown) => {
+    databaseReady = undefined;
+    throw error;
+  });
+  return databaseReady;
+}
+
+app.use("/api", async (_req, _res, next) => {
+  await initializeDatabase();
+  next();
+});
+
 // Stripe verifies the original bytes, so this route must precede JSON parsing.
 app.post("/api/payments/webhook", express.raw({ type: "application/json" }), stripeWebhook);
 
@@ -90,10 +113,7 @@ app.use(errorHandler);
 // Connects to MongoDB first, then starts listening
 async function startServer() {
   try {
-    await connectDB();
-
-    // Ensure the indexes exist before serving requests.
-    await Promise.all([createEquipmentIndexes(), createFavoriteIndexes(), createBookingIndexes(), createOwnerApplicationIndexes()]);
+    await initializeDatabase();
 
     app.listen(env.port, () => {
       console.log(`Equipora API running at http://localhost:${env.port}`);
@@ -104,4 +124,6 @@ async function startServer() {
   }
 }
 
-startServer();
+if (import.meta.main && process.env.VERCEL !== "1") void startServer();
+
+export default app;

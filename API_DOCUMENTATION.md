@@ -1017,3 +1017,26 @@ Errors:
 | `404` | User not found |
 | `409` | Changing your own role, or demoting the last admin |
 
+## Owner Applications
+
+All routes use an Equipora bearer JWT. Customer submission and admin review
+also check the user's current role in MongoDB.
+
+| Method and route | Access | Result |
+| --- | --- | --- |
+| `POST /api/owner-applications` | Customer | Creates a pending application and responds with HTTP 201. |
+| `GET /api/owner-applications/me` | Signed-in user | Returns `{ application, hasOwnerAccess }` in `data`. The application is `null` when there is no history. |
+| `GET /api/admin/owner-applications?page=1` | Admin | Returns ten newest-first applications per page, with applicant name and email where the account exists. Includes standard pagination. |
+| `PATCH /api/admin/owner-applications/:id` | Admin | Accepts `{ "status": "approved" }` or `{ "status": "rejected" }` and returns the reviewed application. |
+
+Submit a reason of 20–1000 characters. `businessName` and
+`additionalInformation` are optional, with limits of 100 and 500 characters.
+The server derives identity from the verified token. It rejects extra fields,
+including submitted user IDs, roles, and statuses.
+
+An existing pending application returns HTTP 409 on submission. A rejected
+customer can reapply. Approval promotes an eligible customer to Owner and
+records the decision. Repeating a completed decision returns the same outcome.
+If approval is interrupted, an admin can retry approval. An opposing decision
+or an ineligible applicant produces HTTP 409. See the [deployment guide](README.md)
+for the required pending-application index.
