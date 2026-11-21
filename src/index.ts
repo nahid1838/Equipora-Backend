@@ -8,6 +8,13 @@ import { createFavoriteIndexes } from "./models/favorite.js";
 import equipmentRoutes from "./routes/equipment.routes.js";
 import favoriteRoutes from "./routes/favorite.routes.js";
 import uploadRoutes from "./routes/upload.routes.js";
+import bookingRoutes from "./routes/booking.routes.js";
+import adminRoutes from "./routes/admin.routes.js";
+import analyticsRoutes from "./routes/analytics.routes.js";
+import ownerApplicationRoutes from "./routes/owner-application.routes.js";
+import { createOwnerApplicationIndexes } from "./models/owner-application.js";
+import { createBookingIndexes } from "./models/booking.js";
+import { stripeWebhook } from "./controllers/stripe-webhook.controller.js";
 
 const app = express();
 
@@ -18,6 +25,9 @@ app.use(
     credentials: true,
   })
 );
+
+// Stripe verifies the original bytes, so this route must precede JSON parsing.
+app.post("/api/payments/webhook", express.raw({ type: "application/json" }), stripeWebhook);
 
 // Parse JSON request bodies. The 5 MB limit allows base64 image uploads
 // (the decoded image itself is capped at 3 MB in the upload controller).
@@ -47,6 +57,22 @@ app.get("/api/health", (_req, res) => {
 // Every route in this router is documented in API_DOCUMENTATION.md
 app.use("/api/equipment", equipmentRoutes);
 app.use("/api/favorites", favoriteRoutes);
+app.use("/api/bookings", bookingRoutes);
+app.use("/api/owner-applications", ownerApplicationRoutes);
+
+/* =========================
+   ADMIN
+   ======================== */
+
+// User administration (documented in API_DOCUMENTATION.md)
+app.use("/api/admin", adminRoutes);
+
+/* =========================
+   ANALYTICS
+   ======================== */
+
+// Dashboard totals and monthly series (documented in API_DOCUMENTATION.md)
+app.use("/api/analytics", analyticsRoutes);
 
 /* =========================
    UPLOADS
@@ -67,7 +93,7 @@ async function startServer() {
     await connectDB();
 
     // Ensure the indexes exist before serving requests.
-    await Promise.all([createEquipmentIndexes(), createFavoriteIndexes()]);
+    await Promise.all([createEquipmentIndexes(), createFavoriteIndexes(), createBookingIndexes(), createOwnerApplicationIndexes()]);
 
     app.listen(env.port, () => {
       console.log(`Equipora API running at http://localhost:${env.port}`);
