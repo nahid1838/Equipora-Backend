@@ -5,7 +5,7 @@ import { env } from "../config/env.js";
 import { bookingCollection, checkoutCollection, paymentCollection, type Booking, type CheckoutDraft } from "../models/booking.js";
 import { reviewDetailsForBookings } from "../utils/review-eligibility.js";
 import { equipmentCollection } from "../models/equipment.js";
-import { bookingError, calculateRental, readRentalPeriod } from "../utils/booking.js";
+import { bookingError, calculateRental, readRentalDates, readRentalPeriod } from "../utils/booking.js";
 import { remainingQuantity } from "../utils/availability.js";
 import { checkoutStatusFor, closeCheckout, fulfillCheckout, recordRefund } from "../utils/checkout.js";
 import { stripe } from "../utils/stripe.js";
@@ -23,21 +23,38 @@ function requestBody(req: Request): Record<string, unknown> {
   return req.body as Record<string, unknown>;
 }
 
-async function prepareRental(equipmentId: ObjectId, period: ReturnType<typeof readRentalPeriod>) {
+async function rentalAvailability(equipmentId: ObjectId, dates: ReturnType<typeof readRentalDates>) {
   const equipment = await equipmentCollection().findOne({ _id: equipmentId, status: "approved" });
   if (!equipment) throw bookingError(404, "Equipment not found.");
-  const available = await remainingQuantity(equipmentId, equipment.availableQuantity, period.startDate, period.endDate);
+  const available = await remainingQuantity(equipmentId, equipment.availableQuantity, dates.startDate, dates.endDate);
+  return { equipment, available };
+}
+
+async function requireAvailableRental(equipmentId: ObjectId, period: ReturnType<typeof readRentalPeriod>) {
+  const { equipment, available } = await rentalAvailability(equipmentId, period);
   if (available < period.quantity) {
     throw bookingError(409, `Only ${available} available for the requested dates. Choose different dates or quantity.`);
   }
-  return { equipment, price: calculateRental(equipment.rentalType, equipment.price, period) };
+  return { equipment, available };
+}
+
+async function prepareRental(equipmentId: ObjectId, period: ReturnType<typeof readRentalPeriod>) {
+  const { equipment, available } = await requireAvailableRental(equipmentId, period);
+  return { equipment, available, price: calculateRental(equipment.rentalType, equipment.price, period) };
+}
+
+export async function bookingAvailability(req: Request, res: Response) {
+  const body = requestBody(req);
+  const dates = readRentalDates(body);
+  const { available } = await rentalAvailability(objectId(body.equipmentId), dates);
+  res.json({ success: true, data: { availableQuantity: available } });
 }
 
 export async function quoteBooking(req: Request, res: Response) {
   const body = requestBody(req);
   const period = readRentalPeriod(body);
-  const { price } = await prepareRental(objectId(body.equipmentId), period);
-  res.json({ success: true, data: { ...price, durationDays: period.durationDays } });
+  const { price, available } = await prepareRental(objectId(body.equipmentId), period);
+  res.json({ success: true, data: { ...price, durationDays: period.durationDays, availableQuantity: available } });
 }
 
 export async function startBookingCheckout(req: Request, res: Response) {
@@ -65,11 +82,9 @@ export async function startBookingCheckout(req: Request, res: Response) {
   const filter = { "details.customerId": user.id, requestKey };
   const checkouts = checkoutCollection();
   let draft = await checkouts.findOne(filter);
-  let availabilityChecked = false;
 
   if (!draft) {
     const { equipment, price } = await prepareRental(equipmentId, period);
-    availabilityChecked = true;
     if (price.totalAmountMinor < 50 || price.totalAmountMinor > 99_999_999) {
       throw bookingError(400, "The rental total is outside the supported USD card payment range.");
     }
@@ -102,7 +117,7 @@ export async function startBookingCheckout(req: Request, res: Response) {
   }
 
   // A retry keeps the same price snapshot but still checks current availability before opening Checkout.
-  if (!availabilityChecked && !draft.stripeSessionId) await prepareRental(equipmentId, period);
+  if (!draft.stripeSessionId) await requireAvailableRental(equipmentId, period);
   let session;
   try {
     session = draft.stripeSessionId
@@ -133,7 +148,7 @@ export async function startBookingCheckout(req: Request, res: Response) {
     return;
   }
   if (session.status !== "open" || !session.url) throw bookingError(409, "This checkout has ended. Close the form and start a new checkout.");
-  if (draft.stripeSessionId) await prepareRental(equipmentId, period);
+  if (draft.stripeSessionId) await requireAvailableRental(equipmentId, period);
   res.json({ success: true, data: { url: session.url } });
 }
 

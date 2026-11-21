@@ -1,9 +1,10 @@
 import { Router } from "express";
-import { checkoutStatus, confirmCheckout, listBookings, quoteBooking, startBookingCheckout } from "../controllers/booking.controller.js";
+import { bookingAvailability, checkoutStatus, confirmCheckout, listBookings, quoteBooking, startBookingCheckout } from "../controllers/booking.controller.js";
 import { verifyAdmin, verifyOwner, verifyRenter, verifyToken } from "../middlewares/auth.js";
 
 const router = Router();
 router.use(verifyToken);
+router.post("/availability", verifyRenter, bookingAvailability);
 router.post("/quote", verifyRenter, quoteBooking);
 router.post("/checkout", verifyRenter, startBookingCheckout);
 router.get("/checkout/:id", verifyRenter, checkoutStatus);

@@ -15,7 +15,7 @@ function dateOnly(value: unknown): Date {
   throw bookingError(400, "Enter valid start and end dates.");
 }
 
-export function readRentalPeriod(input: Record<string, unknown>, now = new Date()) {
+export function readRentalDates(input: Record<string, unknown>, now = new Date()) {
   const startDate = dateOnly(input.startDate);
   const endDate = dateOnly(input.endDate);
   const durationDays = (endDate.getTime() - startDate.getTime()) / DAY_MS;
@@ -25,11 +25,16 @@ export function readRentalPeriod(input: Record<string, unknown>, now = new Date(
   if (durationDays <= 0) {
     throw bookingError(400, "The end date must follow the start date.");
   }
+  return { startDate, endDate, durationDays };
+}
+
+export function readRentalPeriod(input: Record<string, unknown>, now = new Date()) {
+  const dates = readRentalDates(input, now);
   const quantity = input.quantity;
   if (typeof quantity !== "number" || !Number.isSafeInteger(quantity) || quantity < 1) {
     throw bookingError(400, "Quantity must be a positive whole number.");
   }
-  return { startDate, endDate, durationDays, quantity };
+  return { ...dates, quantity };
 }
 
 export function calculateRental(
